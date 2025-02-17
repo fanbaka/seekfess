@@ -13,9 +13,9 @@ def home():
     return "Bot is running!"
 
 # Token dan Channel
-BOT_TOKEN = 'YOUR_BOT_TOKEN'
-CHANNEL_ID = '@yourchannel'
-ADMIN_GROUP_ID = -123456789  # Ganti dengan ID grup admin kamu
+BOT_TOKEN = '7241403614:AAFlArY9nZWajGLNVQ_DOR327HGOCEpR8Bg'
+CHANNEL_ID = '@dhereoon'  # Ganti dengan username channel kamu
+ADMIN_GROUP_ID = -4613809093  # Ganti dengan ID grup admin kamu
 
 # Inisialisasi logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
