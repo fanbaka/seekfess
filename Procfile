@@ -1,1 +1,1 @@
-worker: python jastip_bot.py
+worker: python decav_bot.py

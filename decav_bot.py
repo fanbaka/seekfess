@@ -4,9 +4,9 @@ import re
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 
 # Token dan Channel
-BOT_TOKEN = '7241403614:AAFlArY9nZWajGLNVQ_DOR327HGOCEpR8Bg'
-CHANNEL_ID = '@dhereoon'  # Ganti dengan username channel kamu
-ADMIN_GROUP_ID = -4613809093  # Ganti dengan ID grup admin kamu
+BOT_TOKEN = '7622185552:AAG6cLPhGR5uDbqrzdOYrUr9FC6SpCd69Ps'
+CHANNEL_ID = '@decavstore'  # Ganti dengan username channel kamu
+ADMIN_GROUP_ID = -1001415535129  # Ganti dengan ID grup admin kamu
 
 # Inisialisasi logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -47,7 +47,7 @@ async def handle_pesan(update: Update, context: CallbackContext):
         await update.message.reply_text("Kamu belum subscribe channel kami. Silakan subscribe di sini:", reply_markup=reply_markup)
         return
     
-    is_direct_forward = update.message.text and (update.message.text.startswith("dhereoon!") or update.message.text.startswith("❄️"))
+    is_direct_forward = update.message.text and (update.message.text.startswith("decavstore!") or update.message.text.startswith("❄️"))
     target_chat_id = CHANNEL_ID if is_direct_forward else ADMIN_GROUP_ID
     caption = update.message.caption or ""
     
