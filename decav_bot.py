@@ -64,6 +64,12 @@ async def handle_pesan(update: Update, context: CallbackContext):
         message_sent = await context.bot.send_video(chat_id=target_chat_id, video=update.message.video.file_id, caption=caption)
     elif update.message.document:
         message_sent = await context.bot.send_document(chat_id=target_chat_id, document=update.message.document.file_id, caption=caption)
+    elif update.message.sticker:
+        message_sent = await context.bot.send_sticker(chat_id=target_chat_id, sticker=update.message.sticker.file_id)
+    elif update.message.audio:
+        message_sent = await context.bot.send_audio(chat_id=target_chat_id, audio=update.message.audio.file_id, caption=caption)
+    elif update.message.voice:
+        message_sent = await context.bot.send_voice(chat_id=target_chat_id, voice=update.message.voice.file_id, caption=caption)
     else:
         await update.message.reply_text("Tipe pesan tidak didukung.")
         return
@@ -103,6 +109,12 @@ async def handle_admin_reply(update: Update, context: CallbackContext):
             await context.bot.send_video(chat_id=user_id, video=update.message.video.file_id, caption=caption)
         elif update.message.document:
             await context.bot.send_document(chat_id=user_id, document=update.message.document.file_id, caption=caption)
+        elif update.message.sticker:
+            await context.bot.send_sticker(chat_id=user_id, sticker=update.message.sticker.file_id)
+        elif update.message.audio:
+            await context.bot.send_audio(chat_id=user_id, audio=update.message.audio.file_id, caption=caption)
+        elif update.message.voice:
+            await context.bot.send_voice(chat_id=user_id, voice=update.message.voice.file_id, caption=caption)
         else:
             await update.message.reply_text("Jenis balasan tidak didukung.")
             return
