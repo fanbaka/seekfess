@@ -54,9 +54,12 @@ async def handle_pesan(update: Update, context: CallbackContext):
     target_chat_id = CHANNEL_ID if is_direct_forward else ADMIN_GROUP_ID
     caption = update.message.caption or ""
 
+    if not is_direct_forward:
+        caption = f"📩 Pesan dari {display_name} (ID: {user_id}):\n\n" + (caption or "")
+
     message_sent = None
     if update.message.text:
-        text_message = update.message.text if is_direct_forward else f"📩 Pesan dari {display_name}:\n\n{update.message.text}\n\nID Pengguna: {user_id}"
+        text_message = update.message.text if is_direct_forward else f"📩 Pesan dari {display_name} (ID: {user_id}):\n\n{update.message.text}"
         message_sent = await context.bot.send_message(chat_id=target_chat_id, text=text_message)
     elif update.message.photo:
         message_sent = await context.bot.send_photo(chat_id=target_chat_id, photo=update.message.photo[-1].file_id, caption=caption)
