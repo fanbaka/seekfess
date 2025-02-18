@@ -1,7 +1,7 @@
 from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup
 import logging
 import re
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext, CallbackQueryHandler
 
 # Token dan Channel
 BOT_TOKEN = '7622185552:AAG6cLPhGR5uDbqrzdOYrUr9FC6SpCd69Ps'
@@ -28,6 +28,8 @@ async def start(update: Update, context: CallbackContext):
         return
 
     user_id = update.effective_user.id
+    users.add(user_id)  # Tambahkan user ke daftar pengguna
+
     if await check_subscription(user_id, context):
         await update.message.reply_text("Halo! Kamu sudah subscribe channel kami. Silakan kirim pesan!")
     else:
@@ -55,11 +57,11 @@ async def handle_pesan(update: Update, context: CallbackContext):
     caption = update.message.caption or ""
 
     if not is_direct_forward:
-        caption = f"📩 Pesan dari {display_name} {username} (ID: {user_id}):\n\n" + (caption or "")
+        caption = f"📩 Pesan dari {display_name} (ID: {user_id}):\n\n" + (caption or "")
 
     message_sent = None
     if update.message.text:
-        text_message = update.message.text if is_direct_forward else f"📩 Pesan dari {display_name} {username} (ID: {user_id}):\n\n{update.message.text}"
+        text_message = update.message.text if is_direct_forward else f"📩 Pesan dari {display_name} (ID: {user_id}):\n\n{update.message.text}"
         message_sent = await context.bot.send_message(chat_id=target_chat_id, text=text_message)
     elif update.message.photo:
         message_sent = await context.bot.send_photo(chat_id=target_chat_id, photo=update.message.photo[-1].file_id, caption=caption)
@@ -128,10 +130,12 @@ async def handle_admin_reply(update: Update, context: CallbackContext):
         await update.message.reply_text("Gagal mengirim balasan. Pastikan pengguna masih dapat menerima pesan.")
         
 async def broadcast(update: Update, context: CallbackContext):
-    if update.effective_chat.id not in ADMIN_GROUP_ID:
+    if update.effective_chat.id != ADMIN_GROUP_ID:
         return
     
     user_count = len(users)
+    logger.info(f"🔹 Jumlah pengguna yang terdaftar: {user_count}")  # Tambahkan log ini
+    
     await update.message.reply_text(f"🔹 Ada {user_count} pengguna yang telah memulai bot.\nSilakan kirim pesan yang ingin di-broadcast.")
     context.user_data['broadcast'] = True
 
@@ -192,8 +196,8 @@ def main():
     application.add_handler(MessageHandler(filters.ALL & filters.Chat(ADMIN_GROUP_ID), handle_admin_reply))
     application.add_handler(CommandHandler('broadcast', broadcast))
     application.add_handler(MessageHandler(filters.ALL & filters.Chat(ADMIN_GROUP_ID), handle_broadcast_message))
-    application.add_handler(CommandHandler('cancel', cancel_broadcast))
-    application.add_handler(CommandHandler('confirm', confirm_broadcast))
+    application.add_handler(CallbackQueryHandler(confirm_broadcast, pattern="confirm_broadcast"))
+    application.add_handler(CallbackQueryHandler(cancel_broadcast, pattern="cancel_broadcast"))
 
     application.run_polling()
 
