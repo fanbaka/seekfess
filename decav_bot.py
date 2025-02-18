@@ -1,7 +1,8 @@
 from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup
+import json
 import logging
 import re
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext, CallbackQueryHandler
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 
 # Token dan Channel
 BOT_TOKEN = '7622185552:AAG6cLPhGR5uDbqrzdOYrUr9FC6SpCd69Ps'
@@ -28,7 +29,9 @@ async def start(update: Update, context: CallbackContext):
         return
 
     user_id = update.effective_user.id
-    users.add(user_id)  # Tambahkan user ke daftar pengguna
+    users.add(user_id)  # Simpan user yang berinteraksi
+    save_users()  # Simpan daftar user ke file
+    logger.info(f"User {user_id} added to users set.")  # Log untuk memastikan
 
     if await check_subscription(user_id, context):
         await update.message.reply_text("Halo! Kamu sudah subscribe channel kami. Silakan kirim pesan!")
@@ -42,6 +45,12 @@ async def handle_pesan(update: Update, context: CallbackContext):
         return
 
     user_id = update.effective_user.id
+    
+    # Cek apakah user sudah ada di daftar (users)
+    if user_id not in users:
+        users.add(user_id)  # Tambah user ke set
+        save_users()  # Simpan daftar user ke file JSON
+
     username = update.effective_user.username
     first_name = update.effective_user.first_name
     display_name = f"@{username}" if username else first_name
@@ -128,76 +137,90 @@ async def handle_admin_reply(update: Update, context: CallbackContext):
     except Exception as e:
         logger.error(f"Error sending message: {e}")
         await update.message.reply_text("Gagal mengirim balasan. Pastikan pengguna masih dapat menerima pesan.")
-        
+
 async def broadcast(update: Update, context: CallbackContext):
+    users = load_users()
+    """Mengirim pesan broadcast ke semua user yang pernah berinteraksi."""
+    if update.effective_chat.id != ADMIN_GROUP_ID:
+        return
+
+    if not context.args:
+        await update.message.reply_text("Gunakan format: /broadcast [pesan]")
+        return
+
+    message = " ".join(context.args)
+    failed_users = []
+
+    for user_id in users:
+        try:
+            await context.bot.send_message(chat_id=user_id, text=f"📢 Pengumuman:\n\n{message}")
+        except Exception as e:
+            logger.error(f"Gagal mengirim pesan ke {user_id}: {e}")
+            failed_users.append(user_id)
+
+    await update.message.reply_text(f"Broadcast selesai! Gagal mengirim ke {len(failed_users)} user.")
+
+
+async def broadcastfw(update: Update, context: CallbackContext):
+    users = load_users()
     if update.effective_chat.id != ADMIN_GROUP_ID:
         return
     
-    user_count = len(users)
-    logger.info(f"🔹 Jumlah pengguna yang terdaftar: {user_count}")  # Tambahkan log ini
-    
-    await update.message.reply_text(f"🔹 Ada {user_count} pengguna yang telah memulai bot.\nSilakan kirim pesan yang ingin di-broadcast.")
-    context.user_data['broadcast'] = True
-
-async def handle_broadcast_message(update: Update, context: CallbackContext):
-    if 'broadcast' not in context.user_data or not context.user_data['broadcast']:
+    if not context.args:
+        await update.message.reply_text("Gunakan format: /broadcastfw <link_post>")
         return
     
-    context.user_data['broadcast'] = False
-    keyboard = [[InlineKeyboardButton("✅ Ya", callback_data="confirm_broadcast"), InlineKeyboardButton("❌ Tidak", callback_data="cancel_broadcast")]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    context.user_data['pending_message'] = update.message
-    await update.message.reply_text("Apakah Anda yakin ingin menyiarkan pesan ini?", reply_markup=reply_markup)
+    link = context.args[0]
+    match = re.search(r"https://t\.me/([^/]+)/(\d+)", link)
 
-async def confirm_broadcast(update: Update, context: CallbackContext):
-    query = update.callback_query
-    await query.answer()
-    message = context.user_data.get('pending_message')
-    if not message:
-        await query.edit_message_text("❌ Tidak ada pesan untuk disiarkan.")
+    if not match:
+        await update.message.reply_text("Link tidak valid! Pastikan formatnya seperti ini: https://t.me/channel/12345")
         return
     
-    await query.edit_message_text("📡 Sedang menyiarkan pesan...")
+    channel_username, message_id = match.groups()
+    
+    failed_users = []
+    success_count = 0
+
     for user_id in users:
         try:
-            if message.text:
-                await context.bot.send_message(chat_id=user_id, text=message.text)
-            elif message.photo:
-                await context.bot.send_photo(chat_id=user_id, photo=message.photo[-1].file_id, caption=message.caption)
-            elif message.video:
-                await context.bot.send_video(chat_id=user_id, video=message.video.file_id, caption=message.caption)
-            elif message.document:
-                await context.bot.send_document(chat_id=user_id, document=message.document.file_id, caption=message.caption)
-            elif message.sticker:
-                await context.bot.send_sticker(chat_id=user_id, sticker=message.sticker.file_id)
-            elif message.audio:
-                await context.bot.send_audio(chat_id=user_id, audio=message.audio.file_id, caption=message.caption)
-            elif message.voice:
-                await context.bot.send_voice(chat_id=user_id, voice=message.voice.file_id, caption=message.caption)
-            elif message.forward_from or message.forward_from_chat:
-                await context.bot.forward_message(chat_id=user_id, from_chat_id=message.chat.id, message_id=message.message_id)
+            await context.bot.forward_message(chat_id=user_id, from_chat_id=f"@{channel_username}", message_id=int(message_id))
+            success_count += 1
         except Exception as e:
-            logger.error(f"Gagal mengirim ke {user_id}: {e}")
-    
-    await query.edit_message_text("✅ Pesan telah disiarkan ke semua pengguna.")
+            failed_users.append(user_id)
 
-async def cancel_broadcast(update: Update, context: CallbackContext):
-    query = update.callback_query
-    await query.answer()
-    context.user_data.pop('pending_message', None)
-    await query.edit_message_text("❌ Penyiaran pesan dibatalkan.")
+    await update.message.reply_text(f"Pesan berhasil dikirim ke {success_count} pengguna.")
+    if failed_users:
+        await update.message.reply_text(f"Beberapa user gagal menerima pesan: {len(failed_users)} user.")
+
+# Fungsi untuk memuat daftar user dari file
+def load_users():
+    try:
+        with open('users.json', 'r') as file:
+            return set(json.load(file))
+    except FileNotFoundError:
+        return set()
+
+# Fungsi untuk menyimpan daftar user ke file
+def save_users():
+    try:
+        with open('users.json', 'w') as file:
+            json.dump(list(users), file)
+            logger.info("Users saved successfully.")  # Log untuk memastikan
+    except Exception as e:
+        logger.error(f"Error saving users: {e}")
+
 
 
 
 def main():
     application = Application.builder().token(BOT_TOKEN).build()
     application.add_handler(CommandHandler('start', start))
+    application.add_handler(CommandHandler('broadcast', broadcast, filters.Chat(ADMIN_GROUP_ID)))
+    application.add_handler(CommandHandler("broadcastfw", broadcastfw))
     application.add_handler(MessageHandler(filters.ALL & filters.ChatType.PRIVATE, handle_pesan))
     application.add_handler(MessageHandler(filters.ALL & filters.Chat(ADMIN_GROUP_ID), handle_admin_reply))
-    application.add_handler(CommandHandler('broadcast', broadcast))
-    application.add_handler(MessageHandler(filters.ALL & filters.Chat(ADMIN_GROUP_ID), handle_broadcast_message))
-    application.add_handler(CallbackQueryHandler(confirm_broadcast, pattern="confirm_broadcast"))
-    application.add_handler(CallbackQueryHandler(cancel_broadcast, pattern="cancel_broadcast"))
+
 
     application.run_polling()
 
