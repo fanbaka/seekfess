@@ -13,9 +13,6 @@ ADMIN_GROUP_ID = -1001415535129  # Ganti dengan ID grup admin kamu
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Menyimpan daftar user yang telah memulai bot
-users = set()
-
 async def check_subscription(user_id, context: CallbackContext):
     try:
         member = await context.bot.get_chat_member(chat_id=CHANNEL_ID, user_id=user_id)
@@ -29,10 +26,6 @@ async def start(update: Update, context: CallbackContext):
         return
 
     user_id = update.effective_user.id
-     # Simpan user ke database
-    await save_user(user_id, update.effective_user.username, update.effective_user.first_name)
-
-    logger.info(f"User {user_id} added to users set.")  # Log untuk memastikan
 
     if await check_subscription(user_id, context):
         await update.message.reply_text("Halo! Kamu sudah subscribe channel kami. Silakan kirim pesan!")
@@ -46,11 +39,6 @@ async def handle_pesan(update: Update, context: CallbackContext):
         return
 
     user_id = update.effective_user.id
-
-     # Cek apakah user sudah ada di database, jika belum, simpan
-    all_users = await get_all_users()
-    if user_id not in [user['user_id'] for user in all_users]:
-        await save_user(user_id, update.effective_user.username, update.effective_user.first_name)
 
     username = update.effective_user.username
     first_name = update.effective_user.first_name
@@ -139,109 +127,9 @@ async def handle_admin_reply(update: Update, context: CallbackContext):
         logger.error(f"Error sending message: {e}")
         await update.message.reply_text("Gagal mengirim balasan. Pastikan pengguna masih dapat menerima pesan.")
 
-async def broadcast(update: Update, context: CallbackContext):
-    all_users = await get_all_users()  # Ambil pengguna dari database
-    """Mengirim pesan broadcast ke semua user yang pernah berinteraksi."""
-    if update.effective_chat.id != ADMIN_GROUP_ID:
-        return
-
-    if not context.args:
-        await update.message.reply_text("Gunakan format: /broadcast [pesan]")
-        return
-
-    message = " ".join(context.args)
-    failed_users = []
-
-    for user_id in users:
-        try:
-            await context.bot.send_message(chat_id=user_id, text=f"📢 Pengumuman:\n\n{message}")
-        except Exception as e:
-            logger.error(f"Gagal mengirim pesan ke {user_id}: {e}")
-            failed_users.append(user_id)
-
-    await update.message.reply_text(f"Broadcast selesai! Gagal mengirim ke {len(failed_users)} user.")
-
-
-async def broadcastfw(update: Update, context: CallbackContext):
-    all_users = await get_all_users()  # Ambil pengguna dari database
-    if update.effective_chat.id != ADMIN_GROUP_ID:
-        return
-    
-    if not context.args:
-        await update.message.reply_text("Gunakan format: /broadcastfw <link_post>")
-        return
-    
-    link = context.args[0]
-    match = re.search(r"https://t\.me/([^/]+)/(\d+)", link)
-
-    if not match:
-        await update.message.reply_text("Link tidak valid! Pastikan formatnya seperti ini: https://t.me/channel/12345")
-        return
-    
-    channel_username, message_id = match.groups()
-    
-    failed_users = []
-    success_count = 0
-
-    for user_id in users:
-        try:
-            await context.bot.forward_message(chat_id=user_id, from_chat_id=f"@{channel_username}", message_id=int(message_id))
-            success_count += 1
-        except Exception as e:
-            failed_users.append(user_id)
-
-    await update.message.reply_text(f"Pesan berhasil dikirim ke {success_count} pengguna.")
-    if failed_users:
-        await update.message.reply_text(f"Beberapa user gagal menerima pesan: {len(failed_users)} user.")
-
-# Fungsi untuk memuat daftar user dari file
-def load_users():
-    try:
-        with open('users.json', 'r') as file:
-            return set(json.load(file))
-    except FileNotFoundError:
-        return set()
-
-# Fungsi untuk menyimpan daftar user ke file
-def save_users():
-    try:
-        with open('users.json', 'w') as file:
-            json.dump(list(users), file)
-            logger.info("Users saved successfully.")  # Log untuk memastikan
-    except Exception as e:
-        logger.error(f"Error saving users: {e}")
-
-DATABASE_URL = "postgresql://username:password@localhost:5432/mydatabase"  # Ganti dengan informasi database Anda
-
-async def connect_db():
-    return await asyncpg.create_pool(DATABASE_URL)
-
-async def save_user(user_id, username, first_name):
-    async with pool.acquire() as conn:
-        # Simpan user ke database
-        await conn.execute('''
-            INSERT INTO users(user_id, username, first_name) 
-            VALUES($1, $2, $3)
-            ON CONFLICT (user_id) DO NOTHING
-        ''', user_id, username, first_name)
-
-async def get_all_users():
-    async with pool.acquire() as conn:
-        # Ambil semua user dari database
-        return await conn.fetch('SELECT user_id FROM users')
-
-
-
-
-
-
 async def main():
-    global pool
-    pool = await connect_db()  # Koneksi ke database
     application = Application.builder().token(BOT_TOKEN).build()
     application.add_handler(CommandHandler('start', start))
-    application.add_handler(CommandHandler('broadcast', broadcast, filters.Chat(ADMIN_GROUP_ID)))
-    application.add_handler(CommandHandler("broadcastfw", broadcastfw))
     application.add_handler(MessageHandler(filters.ALL & filters.ChatType.PRIVATE, handle_pesan))
     application.add_handler(MessageHandler(filters.ALL & filters.Chat(ADMIN_GROUP_ID), handle_admin_reply))
 
