@@ -5,8 +5,8 @@ import re
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 
 # Token dan Channel
-BOT_TOKEN = '7622185552:AAG6cLPhGR5uDbqrzdOYrUr9FC6SpCd69Ps'
-CHANNEL_ID = '@decavstore'  # Ganti dengan username channel kamu
+BOT_TOKEN = '7823671143:AAElw_lSEGg_-16WWirC3MvaW4m4L1ZvBzY'
+CHANNEL_ID = '@huntfess'  # Ganti dengan username channel kamu
 ADMIN_GROUP_ID = -1001415535129  # Ganti dengan ID grup admin kamu
 
 # Inisialisasi logging
@@ -29,8 +29,9 @@ async def start(update: Update, context: CallbackContext):
         return
 
     user_id = update.effective_user.id
-    users.add(user_id)  # Simpan user yang berinteraksi
-    save_users()  # Simpan daftar user ke file
+     # Simpan user ke database
+    await save_user(user_id, update.effective_user.username, update.effective_user.first_name)
+
     logger.info(f"User {user_id} added to users set.")  # Log untuk memastikan
 
     if await check_subscription(user_id, context):
@@ -45,11 +46,11 @@ async def handle_pesan(update: Update, context: CallbackContext):
         return
 
     user_id = update.effective_user.id
-    
-    # Cek apakah user sudah ada di daftar (users)
-    if user_id not in users:
-        users.add(user_id)  # Tambah user ke set
-        save_users()  # Simpan daftar user ke file JSON
+
+     # Cek apakah user sudah ada di database, jika belum, simpan
+    all_users = await get_all_users()
+    if user_id not in [user['user_id'] for user in all_users]:
+        await save_user(user_id, update.effective_user.username, update.effective_user.first_name)
 
     username = update.effective_user.username
     first_name = update.effective_user.first_name
@@ -61,7 +62,7 @@ async def handle_pesan(update: Update, context: CallbackContext):
         await update.message.reply_text("Kamu belum subscribe channel kami. Silakan subscribe di sini:", reply_markup=reply_markup)
         return
     
-    is_direct_forward = update.message.text and (update.message.text.startswith("decavstore!") or update.message.text.startswith("❄️"))
+    is_direct_forward = update.message.text and (update.message.text.startswith("#hunt") or update.message.text.startswith("❄️"))
     target_chat_id = CHANNEL_ID if is_direct_forward else ADMIN_GROUP_ID
     caption = update.message.caption or ""
 
@@ -139,7 +140,7 @@ async def handle_admin_reply(update: Update, context: CallbackContext):
         await update.message.reply_text("Gagal mengirim balasan. Pastikan pengguna masih dapat menerima pesan.")
 
 async def broadcast(update: Update, context: CallbackContext):
-    users = load_users()
+    all_users = await get_all_users()  # Ambil pengguna dari database
     """Mengirim pesan broadcast ke semua user yang pernah berinteraksi."""
     if update.effective_chat.id != ADMIN_GROUP_ID:
         return
@@ -162,7 +163,7 @@ async def broadcast(update: Update, context: CallbackContext):
 
 
 async def broadcastfw(update: Update, context: CallbackContext):
-    users = load_users()
+    all_users = await get_all_users()  # Ambil pengguna dari database
     if update.effective_chat.id != ADMIN_GROUP_ID:
         return
     
@@ -210,10 +211,33 @@ def save_users():
     except Exception as e:
         logger.error(f"Error saving users: {e}")
 
+DATABASE_URL = "postgresql://username:password@localhost:5432/mydatabase"  # Ganti dengan informasi database Anda
+
+async def connect_db():
+    return await asyncpg.create_pool(DATABASE_URL)
+
+async def save_user(user_id, username, first_name):
+    async with pool.acquire() as conn:
+        # Simpan user ke database
+        await conn.execute('''
+            INSERT INTO users(user_id, username, first_name) 
+            VALUES($1, $2, $3)
+            ON CONFLICT (user_id) DO NOTHING
+        ''', user_id, username, first_name)
+
+async def get_all_users():
+    async with pool.acquire() as conn:
+        # Ambil semua user dari database
+        return await conn.fetch('SELECT user_id FROM users')
 
 
 
-def main():
+
+
+
+async def main():
+    global pool
+    pool = await connect_db()  # Koneksi ke database
     application = Application.builder().token(BOT_TOKEN).build()
     application.add_handler(CommandHandler('start', start))
     application.add_handler(CommandHandler('broadcast', broadcast, filters.Chat(ADMIN_GROUP_ID)))
