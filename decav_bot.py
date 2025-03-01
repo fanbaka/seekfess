@@ -187,11 +187,20 @@ async def close_bot(update: Update, context: CallbackContext):
         bot_active = False
         await update.message.reply_text("⏸️ Bot telah dipause. Kirim /open untuk mengaktifkan kembali.")
 
+async def get_group_id(update: Update, context: CallbackContext):
+    chat_id = update.effective_chat.id
+    chat_title = update.effective_chat.title if update.effective_chat.title else "Private Chat"
+
+    response_text = f"🆔 ID Grup/Channel: `{chat_id}`\n🏷️ Nama: {chat_title}"
+    await update.message.reply_text(response_text, parse_mode="Markdown")
+
+
 def main():
     application = Application.builder().token(BOT_TOKEN).build()
     application.add_handler(CommandHandler('start', start))
     application.add_handler(CommandHandler('open', open_bot))
     application.add_handler(CommandHandler('close', close_bot))
+    application.add_handler(CommandHandler('grupid', get_group_id))
     application.add_handler(MessageHandler(filters.ALL & filters.ChatType.PRIVATE, handle_pesan))
     application.add_handler(MessageHandler(filters.ALL & filters.Chat(ADMIN_GROUP_ID), handle_admin_reply))
 
