@@ -6,7 +6,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 
 # Token dan Channel
 BOT_TOKEN = '7932656511:AAGqJWjaUtUqms3f4pN2z-qJhbAH0Vsq6QQ'
-CHANNEL_ID = '@seekfess'  # Ganti dengan username channel kamu
+CHANNEL_ID = '@basepf'  # Ganti dengan username channel kamu
 ADMIN_GROUP_ID = -1002393683314  # Ganti dengan ID grup admin kamu
 LOG_GROUP_ID = -1002354693758  # Ganti dengan ID grup log kamu
 
