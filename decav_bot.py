@@ -3,12 +3,17 @@ import json
 import logging
 import re
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
+from supabase import create_client
+from telegram.ext import ContextTypes
+
 
 # Token dan Channel
 BOT_TOKEN = '7932656511:AAGqJWjaUtUqms3f4pN2z-qJhbAH0Vsq6QQ'
 CHANNEL_ID = '@basepf'  # Ganti dengan username channel kamu
 ADMIN_GROUP_ID = -1002393683314  # Ganti dengan ID grup admin kamu
 LOG_GROUP_ID = -1002354693758  # Ganti dengan ID grup log kamu
+SUPABASE_URL = 'https://ezsxqkwymixxypavtayj.supabase.co'
+SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV6c3hxa3d5bWl4eHlwYXZ0YXlqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDIyNTM3MDAsImV4cCI6MjA1NzgyOTcwMH0.YTiy-C5CB6opcoykgyXWVzJ_KPV8WhgST96FqQIZUw4'
 
 # Inisialisasi logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -17,26 +22,70 @@ logger = logging.getLogger(__name__)
 # Status bot (aktif atau tidak)
 bot_active = True
 
+# Inisialisasi Supabase
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+def load_required_channels():
+    response = supabase.table('required_channels').select("channel_username").execute()
+    if response.data:
+        return [row["channel_username"] for row in response.data]
+    return []
+
+def save_required_channels(channels):
+    supabase.table('required_channels').delete().neq("channel_username", "").execute()
+    for channel in channels:
+        supabase.table('required_channels').insert({"channel_username": channel}).execute()
+
+required_channels = load_required_channels()
+
 async def check_subscription(user_id, context: CallbackContext):
-    try:
-        member = await context.bot.get_chat_member(chat_id=CHANNEL_ID, user_id=user_id)
-        return member.status in ['member', 'administrator', 'creator']
-    except Exception as e:
-        logger.error(f"Error checking subscription: {e}")
-        return False
+    for channel in required_channels:
+        try:
+            member = await context.bot.get_chat_member(chat_id=channel, user_id=user_id)
+            if member.status not in ['member', 'administrator', 'creator']:
+                return False
+        except Exception as e:
+            logger.error(f"Error checking subscription in {channel}: {e}")
+            return False
+    return True
+
+async def set_required_channels(update: Update, context: CallbackContext):
+    if update.effective_chat.id != ADMIN_GROUP_ID:
+        return
+
+    if not context.args:
+        await update.message.reply_text("Gunakan format: /setrequired @channel1 @channel2")
+        return
+
+    global required_channels
+    required_channels = context.args
+    save_required_channels(required_channels)
+    await update.message.reply_text(f"Daftar channel wajib diikuti telah diperbarui: {', '.join(required_channels)}")
+
+async def save_user(user_id, username):
+    data = {
+        "user_id": user_id,
+        "username": username
+    }
+    # Simpan ke Supabase
+    response = supabase.table("users").upsert([data]).execute()
+    print("User saved:", response)
 
 async def start(update: Update, context: CallbackContext):
     if update.effective_chat.type != "private":
         return
-
     user_id = update.effective_user.id
+    username = update.effective_user.username
 
+    # Simpan user ke database
+    await save_user(user_id, username)
     if await check_subscription(user_id, context):
         await update.message.reply_text("Halo! Kamu sudah subscribe channel kami. Silakan kirim pesan!")
     else:
-        keyboard = [[InlineKeyboardButton("Join Channel", url=f"https://t.me/{CHANNEL_ID[1:]}")]]
+        keyboard = [[InlineKeyboardButton("Join Channels", url=f"https://t.me/{channel[1:]}")] for channel in required_channels]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text("Halo! Kamu perlu subscribe channel kami terlebih dahulu untuk menggunakan bot ini.", reply_markup=reply_markup)
+        await update.message.reply_text("Kamu harus bergabung dengan channel berikut terlebih dahulu:", reply_markup=reply_markup)
+
 
 async def handle_pesan(update: Update, context: CallbackContext):
     global bot_active
@@ -55,7 +104,7 @@ async def handle_pesan(update: Update, context: CallbackContext):
 
     # Cek apakah user sudah subscribe channel
     if not await check_subscription(user_id, context):
-        keyboard = [[InlineKeyboardButton("Join Channel", url=f"https://t.me/{CHANNEL_ID[1:]}")]]
+        keyboard = [[InlineKeyboardButton("Join Channel", url=f"https://t.me/{channel[1:]}")] for channel in required_channels]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text("Kamu belum subscribe channel kami. Silakan subscribe di sini.", reply_markup=reply_markup)
         return
@@ -70,13 +119,13 @@ async def handle_pesan(update: Update, context: CallbackContext):
 
     # Tambahkan info pengirim jika pesan dikirim ke grup admin
     if not is_direct_forward:
-        caption = f"""
-        📩 Pesan dari {display_name}
-        ID: {user_id}
-
-        {caption if caption else ""}
-        """.strip()
-
+        caption = (
+            f"📩 Pesan dari: {first_name}\n"
+            f"👤 Username: {display_name}\n"
+            f"🆔 ID: {user_id}\n\n"
+            f"💬 Pesan:\n"
+            f"{caption if caption else ''}"
+        )
 
     message_sent = None
 
@@ -194,6 +243,88 @@ async def get_group_id(update: Update, context: CallbackContext):
     response_text = f"🆔 ID Grup/Channel: `{chat_id}`\n🏷️ Nama: {chat_title}"
     await update.message.reply_text(response_text, parse_mode="Markdown")
 
+async def get_all_user_ids():
+    """Mengambil semua user_id yang terdaftar di database Supabase."""
+    response = supabase.table("users").select("user_id").execute()
+    
+    # Pastikan response memiliki data
+    if hasattr(response, "data") and response.data:
+        return [row["user_id"] for row in response.data]
+    
+    return []
+
+async def remove_failed_user(user_id):
+    """Menghapus user_id dari database jika gagal menerima pesan."""
+    try:
+        supabase.table("users").delete().eq("user_id", user_id).execute()
+        logger.info(f"User {user_id} dihapus dari database.")
+    except Exception as e:
+        logger.error(f"Gagal menghapus user {user_id}: {e}")
+
+
+async def broadcast_forward(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Mengirim forward pesan dari channel publik ke semua user bot."""
+    if update.effective_chat.id != ADMIN_GROUP_ID or not context.args:
+        return await update.message.reply_text("Gunakan format: /broadcastfw <link>")
+
+    link = context.args[0]
+
+    # Validasi link harus dari channel publik (t.me/username/message_id)
+    match = re.match(r"https://t\.me/([a-zA-Z0-9_]+)/(\d+)", link)
+    if not match:
+        return await update.message.reply_text("❌ Link tidak valid atau bukan dari channel publik!")
+
+    channel_username, message_id = match.groups()
+
+    user_list = await get_all_user_ids()
+    success_count = 0
+    failed_count = 0
+
+    for user_id in user_list:
+        try:
+            await context.bot.forward_message(
+                chat_id=user_id,
+                from_chat_id=f"@{channel_username}",
+                message_id=int(message_id)
+            )
+            success_count += 1
+        except Exception as e:
+            logger.error(f"Gagal forward ke {user_id}: {e}")
+            failed_count += 1
+            await remove_failed_user(user_id)  # ✅ Hapus user dari database
+
+    report = f"✅ Forward selesai!\n- Berhasil: {success_count} user\n- Gagal: {failed_count} user"
+
+    await update.message.reply_text(report)
+
+
+async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Mengirim pesan broadcast ke semua user."""
+    if update.effective_chat.id != ADMIN_GROUP_ID:
+        return
+
+    if not context.args:
+        await update.message.reply_text("Gunakan format: /broadcast <teks>")
+        return
+
+    message_text = " ".join(context.args)
+    user_list = await get_all_user_ids()
+
+    success_count = 0
+    failed_count = 0
+
+    for user_id in user_list:
+        try:
+            await context.bot.send_message(chat_id=user_id, text=message_text)
+            success_count += 1
+        except Exception as e:
+            logger.error(f"Gagal kirim ke {user_id}: {e}")
+            failed_count += 1
+            await remove_failed_user(user_id)  # ✅ Hapus user dari database
+
+    report = f"✅ Broadcast selesai!\n- Berhasil: {success_count} user\n- Gagal: {failed_count} user"
+
+    await update.message.reply_text(report)
 
 def main():
     application = Application.builder().token(BOT_TOKEN).build()
@@ -201,6 +332,9 @@ def main():
     application.add_handler(CommandHandler('open', open_bot))
     application.add_handler(CommandHandler('close', close_bot))
     application.add_handler(CommandHandler('grupid', get_group_id))
+    application.add_handler(CommandHandler('setrequired', set_required_channels))
+    application.add_handler(CommandHandler('broadcastfw', broadcast_forward))
+    application.add_handler(CommandHandler('broadcast', broadcast))
     application.add_handler(MessageHandler(filters.ALL & filters.ChatType.PRIVATE, handle_pesan))
     application.add_handler(MessageHandler(filters.ALL & filters.Chat(ADMIN_GROUP_ID), handle_admin_reply))
 
