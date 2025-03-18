@@ -2,6 +2,7 @@ from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup
 import json
 import logging
 import re
+import markdown
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 from supabase import create_client
 from telegram.ext import ContextTypes
@@ -24,6 +25,7 @@ bot_active = True
 
 # Inisialisasi Supabase
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
 
 def load_required_channels():
     response = supabase.table('required_channels').select("channel_username").execute()
@@ -80,11 +82,18 @@ async def start(update: Update, context: CallbackContext):
     # Simpan user ke database
     await save_user(user_id, username)
     if await check_subscription(user_id, context):
-        await update.message.reply_text("Halo! Kamu sudah subscribe channel kami. Silakan kirim pesan!")
+        await update.message.reply_text(
+            "Halo, selamat datang di *BasePF*! ☕️\n\n"
+            "𔐼 *Base PF:* [@basepf](https://t.me/basepf)\n"
+            "𔐼 *LPM PF:* [@lapakproofneeds](https://t.me/lapakproofneeds)\n"
+            "𔐼 *Rules:* [@rulespf](https://t.me/rulespf)\n\n"
+            "Ketuk /menu untuk menampilkan navigasi 🐿",
+            parse_mode="Markdown"
+        )
     else:
         keyboard = [[InlineKeyboardButton("Join Channels", url=f"https://t.me/{channel[1:]}")] for channel in required_channels]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text("Kamu harus bergabung dengan channel berikut terlebih dahulu:", reply_markup=reply_markup)
+        await update.message.reply_text("Sebelum lanjut, silakan join channel berikut dulu ya!", reply_markup=reply_markup)
 
 
 async def handle_pesan(update: Update, context: CallbackContext):
@@ -106,7 +115,7 @@ async def handle_pesan(update: Update, context: CallbackContext):
     if not await check_subscription(user_id, context):
         keyboard = [[InlineKeyboardButton("Join Channel", url=f"https://t.me/{channel[1:]}")] for channel in required_channels]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text("Kamu belum subscribe channel kami. Silakan subscribe di sini.", reply_markup=reply_markup)
+        await update.message.reply_text("Sebelum lanjut, silakan join channel berikut dulu ya!", reply_markup=reply_markup)
         return
 
     # Cek apakah pesan mengandung #hunt atau 🐿 di teks atau caption media
@@ -161,7 +170,15 @@ async def handle_pesan(update: Update, context: CallbackContext):
     if is_direct_forward and message_sent:
         keyboard = [[InlineKeyboardButton("Lihat Pesan Kamu", url=f"https://t.me/{CHANNEL_ID[1:]}/{message_sent.message_id}")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text("Pesan kamu telah dikirim ke channel kami. Kamu dapat melihatnya melalui tombol berikut.", reply_markup=reply_markup)
+        await update.message.reply_text(
+            "Pesan kamu telah dikirim ke channel! 🪶\n\n"
+            "𔐼 *Base PF:* [@basepf](https://t.me/basepf)\n"
+            "𔐼 *LPM PF:* [@lapakproofneeds](https://t.me/lapakproofneeds)\n"
+            "𔐼 *Rules:* [@rulespf](https://t.me/rulespf)\n\n"
+            "Jangan lupa kepoin channel diatas ya proofies!",
+            parse_mode="Markdown",
+            reply_markup=reply_markup
+        )
     else:
         await update.message.reply_text("Pesan kamu telah dikirim, mohon tunggu beberapa saat.")
 
@@ -326,6 +343,69 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(report)
 
+    # Fungsi untuk menambahkan command
+async def add_command(update: Update, context: CallbackContext) -> None:
+    if update.message.reply_to_message:
+        command_name = context.args[0] if context.args else None
+        command_content = update.message.reply_to_message.text
+    else:
+        if len(context.args) < 2:
+            await update.message.reply_text("Gunakan format: /addcommand <nama> <isi>")
+            return
+        command_name, command_content = context.args[0], " ".join(context.args[1:])
+
+    command_name = command_name
+    if not command_name.startswith("/"):
+        command_name = "/" + command_name  # Pastikan selalu pakai "/"
+
+    logging.info(f"Menyimpan command: {command_name}")
+
+    response = supabase.table("commands").upsert({"name": command_name, "content": command_content}).execute()
+    if response.data:
+        await update.message.reply_text(f"Command `{command_name}` berhasil disimpan!", parse_mode='Markdown')
+    else:
+        await update.message.reply_text("Gagal menyimpan command.")
+
+async def get_command(update: Update, context: CallbackContext) -> None:
+    message_text = update.message.text.strip()
+    logging.info(f"Pesan masuk: {message_text}")
+
+    if not message_text.startswith("/"):
+        logging.info("Pesan bukan command, diabaikan.")
+        return  
+
+    command_name = message_text.strip().split()[0]  # Ambil nama command lengkap (termasuk "/")
+    logging.info(f"Mencari command: {command_name}")
+
+
+    response = supabase.table("commands").select("content").eq("name", command_name).execute()
+    logging.info(f"Respon dari database: {response}")
+
+    if response.data:
+        content = response.data[0]["content"]
+        logging.info(f"Menampilkan isi command: {content}")
+        await update.message.reply_text(content, parse_mode='Markdown')
+    else:
+        logging.info("Command tidak ditemukan.")
+        await update.message.reply_text("Command tidak ditemukan.")
+
+
+
+
+# Fungsi untuk menghapus command
+async def delete_command(update: Update, context: CallbackContext) -> None:
+    if not context.args:
+        await update.message.reply_text("Gunakan format: /deletecommand <nama>")
+        return
+    
+    command_name = context.args[0]
+    response = supabase.table("commands").delete().eq("name", command_name).execute()
+    
+    if response.data:
+        await update.message.reply_text(f"Command `{command_name}` berhasil dihapus!", parse_mode='Markdown')
+    else:
+        await update.message.reply_text("Command tidak ditemukan atau gagal dihapus.")
+
 def main():
     application = Application.builder().token(BOT_TOKEN).build()
     application.add_handler(CommandHandler('start', start))
@@ -335,6 +415,9 @@ def main():
     application.add_handler(CommandHandler('setrequired', set_required_channels))
     application.add_handler(CommandHandler('broadcastfw', broadcast_forward))
     application.add_handler(CommandHandler('broadcast', broadcast))
+    application.add_handler(CommandHandler("addcommand", add_command))
+    application.add_handler(CommandHandler("deletecommand", delete_command))
+    application.add_handler(MessageHandler(filters.COMMAND, get_command))
     application.add_handler(MessageHandler(filters.ALL & filters.ChatType.PRIVATE, handle_pesan))
     application.add_handler(MessageHandler(filters.ALL & filters.Chat(ADMIN_GROUP_ID), handle_admin_reply))
 
